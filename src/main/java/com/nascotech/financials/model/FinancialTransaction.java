@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;
 
+import java.time.LocalDateTime;
 import java.util.Objects;
 
 @Entity
@@ -20,11 +21,12 @@ public class FinancialTransaction {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    private Long paymentId;
     private Long userId;
     private String service;
     private String status;
     private String reference;
-    private String date;
+    private LocalDateTime transactionDate;
 
     @Override
     public final boolean equals(Object o) {

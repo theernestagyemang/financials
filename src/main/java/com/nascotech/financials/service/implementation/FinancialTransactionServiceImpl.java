@@ -1,66 +1,75 @@
 package com.nascotech.financials.service.implementation;
 
+import com.nascotech.financials.api.FinancialTransactionController;
 import com.nascotech.financials.dto.DataListPaymentResponse;
-import com.nascotech.financials.dto.FinancialTransactionRequest;
-import com.nascotech.financials.dto.PaymentResponse;
+import com.nascotech.financials.dto.Payment;
 import com.nascotech.financials.model.FinancialTransaction;
 import com.nascotech.financials.repository.FinancialTransactionRepository;
 import com.nascotech.financials.service.interfaces.FinancialTransactionService;
+import com.nascotech.financials.util.DateUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
-import java.util.List;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FinancialTransactionServiceImpl implements FinancialTransactionService {
 
-    private final FinancialTransactionRepository repository;
+    private final FinancialTransactionRepository financialTransactionRepository;
+    private final WebClient webClient;
 
+    public Mono<DataListPaymentResponse> getFinancialTransactions(
+            String dateFrom, String dateTo, Long userId, String service,
+            int page, int size, String status, String reference) {
 
-    @Override
-    public Mono<ResponseEntity<DataListPaymentResponse>> processFilteredTransactions(
-            String dateFrom, String dateTo, Long userId, String service, Pageable pageable, String status, String reference) {
+        // Step 1: Create Pageable Object
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "paymentId"));
 
-        return getFilteredTransactions(dateFrom, dateTo, userId, service, pageable, status, reference)
-                .map(transactions -> {
-                    List<PaymentResponse> sortedPayments = transactions.stream()
-                            .map(this::retrieveFinancialTransaction)
-                            .sorted((p1, p2) -> p2.getPaymentId().compareTo(p1.getPaymentId()))
-                            .toList();
-
-                    return ResponseEntity.ok(new DataListPaymentResponse(sortedPayments));
+        // Step 2: Retrieve Financial Transactions
+        return Mono.fromCallable(() -> financialTransactionRepository
+                        .findByFilters(DateUtil.parseDate(dateFrom), DateUtil.parseDate(dateTo), userId, service, status, reference, pageable))
+                .flatMapMany(Flux::fromIterable) // Step 3: Extract and Transform Data
+                .flatMap(this::processFinancialTransaction) // Step 4: Process Each Financial Transaction
+                .collectList()
+                .map(sortedPayments -> { // Step 5: Sort Payments (already sorted by pageable)
+                    // Step 6: Create Response Object
+                    DataListPaymentResponse response = new DataListPaymentResponse();
+                    response.setPayments(sortedPayments);
+                    response.add(linkTo(methodOn(FinancialTransactionController.class)
+                            .getFinancialTransactions(dateFrom, dateTo, userId, service, page, size, status, reference))
+                            .withSelfRel());
+                    return response;
                 })
-                .onErrorResume(WebClientResponseException.class, e ->
-                        Mono.just(ResponseEntity.status(e.getStatusCode()).body(new DataListPaymentResponse(List.of()))));
+                .onErrorResume(WebClientResponseException.class, ex -> { // Step 8: Error Handling
+                    log.error("Error fetching financial transactions: {}", ex.getMessage());
+                    return Mono.empty();
+                });
     }
 
-    @Override
-    public Mono<List<FinancialTransaction>> getFilteredTransactions(String dateFrom, String dateTo, Long userId, String service, Pageable pageable, String status, String reference) {
-        return Mono.fromCallable(() ->
-                repository.findByUserIdAndServiceAndStatusAndReferenceAndDateBetween(userId, service, status, reference, dateFrom, dateTo, pageable).getContent()
-        ).subscribeOn(Schedulers.boundedElastic());
+    private Mono<Payment> processFinancialTransaction(FinancialTransaction transaction) {
+        return retrieveFinancialTransaction(transaction.getPaymentId()) // Fetch details
+                .map(payment -> {
+                    payment.setFinancialTransaction(transaction); // Associate transaction
+                    return payment;
+                });
     }
 
-    @Override
-    public PaymentResponse retrieveFinancialTransaction(FinancialTransaction transaction) {
-        return new PaymentResponse(transaction.getId(), transaction.getService(), transaction.getStatus());
+    private Mono<Payment> retrieveFinancialTransaction(Long paymentId) {
+        return webClient.get()
+                .uri("/api/payments/{id}", paymentId)
+                .retrieve()
+                .bodyToMono(Payment.class);
     }
 
-    @Override
-    public String saveTransaction(FinancialTransactionRequest transaction) {
-        repository.save(FinancialTransaction.builder()
-                .userId(transaction.getUserId())
-                .service(transaction.getService())
-                .status(transaction.getStatus())
-                .reference(transaction.getReference())
-                .date(transaction.getDate())
-                .build());
-        return "Transaction saved successfully";
-    }
 }
