@@ -36,7 +36,7 @@ public class FinancialTransactionController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String reference) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("paymentId").descending());
+        Pageable pageable = PageRequest.of(page, size, Sort.by("id").descending());
 
         return financialTransactionService.getFilteredTransactions(dateFrom, dateTo, userId, service, pageable, status, reference)
                 .map(transactions -> {
