@@ -21,6 +21,7 @@ public class FinancialTransaction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private Long userId;
+    private Long paymentId;
     private String service;
     private String status;
     private String reference;

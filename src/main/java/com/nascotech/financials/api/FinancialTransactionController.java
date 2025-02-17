@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.hateoas.Link;
+import org.springframework.hateoas.server.mvc.WebMvcLinkBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -44,8 +46,10 @@ public class FinancialTransactionController {
                             .map(financialTransactionService::retrieveFinancialTransaction)
                             .sorted(Comparator.comparing(PaymentResponse::getPaymentId).reversed())
                             .collect(Collectors.toList());
-
                     DataListPaymentResponse response = new DataListPaymentResponse(sortedPayments);
+                    Link selfLink = WebMvcLinkBuilder.linkTo(WebMvcLinkBuilder.methodOn(FinancialTransactionController.class)
+                            .getFinancialTransactions(dateFrom, dateTo, userId, service, page, size, status, reference)).withSelfRel();
+                    response.add(selfLink);
                     return ResponseEntity.ok(response);
                 })
                 .onErrorResume(WebClientResponseException.class, e ->
